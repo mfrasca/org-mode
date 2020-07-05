@@ -51,6 +51,7 @@
 Returns the resulting property list."
   (when options
     (let ((op '(("type"    . :plot-type)
+		("use"     . :use)
 		("script"  . :script)
 		("line"    . :line)
 		("set"     . :set)
@@ -61,6 +62,7 @@ Returns the resulting property list."
 		("file"    . :file)
 		("labels"  . :labels)
 		("map"     . :map)
+		("xticdep" . :xticdep)
 		("timeind" . :timeind)
 		("timefmt" . :timefmt)))
 	  (multiples '("set" "line"))
@@ -91,15 +93,34 @@ Return value is the point at the beginning of the table."
   (while (not (or (org-at-table-p) (< 0 (forward-line 1)))))
   (goto-char (org-table-begin)))
 
-(defun org-plot/collect-options (&optional params)
-  "Collect options from an org-plot `#+Plot:' line.
-Accepts an optional property list PARAMS, to which the options
-will be added.  Returns the resulting property list."
-  (interactive)
-  (let ((line (thing-at-point 'line)))
-    (if (string-match "#\\+PLOT: +\\(.*\\)$" line)
-	(org-plot/add-options-to-plist params (match-string 1 line))
-      params)))
+(defun org-plot/collect-line-options (line &optional params)
+  "Collect org-plot options from LINE.
+
+If LINE matches the org-plot definitions pattern, collect the
+options contained.  The options will be added to the optional
+PARAMS property list.  Return the augmented property list."
+  (or (when (string-match "#\\+PLOT\\(?:\\[\\(.*\\)\\]\\)?: +\\(.*\\)$" line)
+	(let ((expect-use (match-string 1 line))
+	      (options (match-string 2 line)))
+	  (when (or (not expect-use)
+		    (eq (string-to-number expect-use) (plist-get params :use)))
+            (org-plot/add-options-to-plist params options))))
+      params))
+
+(defun org-plot/collect-table-options (&optional params)
+  "Scans all `#+' lines preceding point, collecting options.
+
+Point is assumed to be at table begin, immediately after last
+`#+' line.  Accepts an optional property list PARAMS, to which
+the options will be added.  Returns the accumulated property
+list."
+  (save-excursion
+    (while (and (equal 0 (forward-line -1))
+		(looking-at "[[:space:]]*#\\+"))
+      (setq params (org-plot/collect-line-options
+		    (string-trim (thing-at-point 'line))
+		    params))))
+  params)
 
 (defun org-plot-quote-timestamp-field (s)
   "Convert field S from timestamp to Unix time and export to gnuplot."
@@ -179,6 +200,24 @@ and dependent variables."
 	  (setf back-edge "") (setf front-edge ""))))
     row-vals))
 
+(defun org-plot/zip-deps-with (num-cols ind deps with)
+  "Describe each column to be plotted as (col . with).
+Loops over DEPS and WITH in order to cons their elements.
+If the DEPS list of columns is not given, use all columns from 1
+to NUM-COLS, excluding IND.
+If WITH is given as a string, use the given value for all columns.
+If WITH is given as a list, and it's shorter than DEPS, expand it
+with the global default value."
+  (unless deps
+    (setq deps (remove ind (number-sequence 1 num-cols))))
+  (setq with
+	(if (listp with)
+	    (append with
+		    (make-list (max 0 (- (length deps) (length with)))
+			       "lines"))
+	  (make-list (length deps) with)))
+  (cl-mapcar #'cons deps with))
+
 (defun org-plot/gnuplot-script (data-file num-cols params &optional preface)
   "Write a gnuplot script to DATA-FILE respecting the options set in PARAMS.
 NUM-COLS controls the number of columns plotted in a 2-d plot.
@@ -195,6 +234,7 @@ manner suitable for prepending to a user-specified script."
 	 (time-ind (plist-get params :timeind))
 	 (timefmt (plist-get params :timefmt))
 	 (text-ind (plist-get params :textind))
+	 (xticdep (plist-get params :xticdep))
 	 (deps (if (plist-member params :deps) (plist-get params :deps)))
 	 (col-labels (plist-get params :labels))
 	 (x-labels (plist-get params :xlabels))
@@ -239,32 +279,29 @@ manner suitable for prepending to a user-specified script."
 			   (or timefmt	; timefmt passed to gnuplot
 			       "%Y-%m-%d-%H:%M:%S") "\"")))
     (unless preface
-      (pcase type			; plot command
-	(`2d (dotimes (col num-cols)
-	       (unless (and (eq type '2d)
-			    (or (and ind (equal (1+ col) ind))
-				(and deps (not (member (1+ col) deps)))))
-		 (setf plot-lines
-		       (cons
-			(format plot-str data-file
-				(or (and ind (> ind 0)
-					 (not text-ind)
-					 (format "%d:" ind)) "")
-				(1+ col)
-				(if text-ind (format ":xticlabel(%d)" ind) "")
-				with
-				(or (nth col col-labels)
-				    (format "%d" (1+ col))))
-			plot-lines)))))
-	(`3d
-	 (setq plot-lines (list (format "'%s' matrix with %s title ''"
-					data-file with))))
-	(`grid
-	 (setq plot-lines (list (format "'%s' with %s title ''"
-					data-file with)))))
+      (setq plot-lines
+	    (pcase type			; plot command
+	      (`2d (cl-loop
+		    for (col . with)
+		    in (org-plot/zip-deps-with num-cols ind deps with)
+		    collect (format plot-str data-file
+				    (or (and ind (> ind 0)
+					     (not text-ind)
+					     (format "%d:" ind)) "")
+				    col
+				    (cond (xticdep (format ":xticlabel(%d)" xticdep))
+					  (text-ind (format ":xticlabel(%d)" ind))
+					  (t ""))
+				    with
+				    (or (nth (1- col) col-labels)
+					(format "%d" col)))))
+	      (`3d (list (format "'%s' matrix with %s title ''"
+				 data-file with)))
+	      (`grid (list (format "'%s' with %s title ''"
+				   data-file with)))))
       (funcall ats
 	       (concat plot-cmd " " (mapconcat #'identity
-					       (reverse plot-lines)
+					       plot-lines
 					       ",\\\n    "))))
     script))
 
@@ -286,20 +323,18 @@ line directly before or after the table."
     ;; Set default options.
     (dolist (pair org-plot/gnuplot-default-options)
       (unless (plist-member params (car pair))
-	(setf params (plist-put params (car pair) (cdr pair)))))
+	(setq params (plist-put params (car pair) (cdr pair)))))
     ;; collect table and table information
     (let* ((data-file (make-temp-file "org-plot"))
 	   (table (org-table-collapse-header (org-table-to-lisp)))
 	   (num-cols (length (car table))))
       (run-with-idle-timer 0.1 nil #'delete-file data-file)
       (when (eq (cadr table) 'hline)
-	(setf params
-	      (plist-put params :labels (car table))) ; headers to labels
-	(setf table (delq 'hline (cdr table)))) ; clean non-data from table
+	(setq params
+	      (plist-put params :labels (pop table)))) ; headers to labels
+      (setq table (delq 'hline (cdr table))) ; clean non-data from table
       ;; Collect options.
-      (save-excursion (while (and (equal 0 (forward-line -1))
-				  (looking-at "[[:space:]]*#\\+"))
-			(setf params (org-plot/collect-options params))))
+      (setq params (org-plot/collect-table-options params))
       ;; Dump table to datafile (very different for grid).
       (pcase (plist-get params :plot-type)
 	(`2d   (org-plot/gnuplot-to-data table data-file params))
@@ -316,7 +351,7 @@ line directly before or after the table."
 			     (string-match org-ts-regexp3 el))
 			   ind-column)
 		 (plist-put params :timeind t)) ; ind holds timestamps
-		((or (string= (plist-get params :with) "hist")
+		((or (equal (plist-get params :with) "hist")
 		     (cl-notevery (lambda (el)
 				    (string-match org-table-number-regexp el))
 				  ind-column))
