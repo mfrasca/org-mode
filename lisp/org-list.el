@@ -3388,14 +3388,10 @@ it is called with arguments ARGS."
 (defun org-list--to-generic-plain-list (params)
   "Return a transcoder for `plain-list' elements.
 PARAMS is a plist used to tweak the behavior of the transcoder."
-  (let ((ustart (plist-get params :ustart))
-	(uend (plist-get params :uend))
-	(ostart (plist-get params :ostart))
-	(oend (plist-get params :oend))
-	(dstart (plist-get params :dstart))
-	(dend (plist-get params :dend))
-	(splice (plist-get params :splice))
-	(backend (plist-get params :backend)))
+  (cl-destructuring-bind
+      (&key ustart uend ostart oend dstart dend splice backend
+	    &allow-other-keys)
+      params
     (lambda (plain-list contents info)
       (let* ((type (org-element-property :type plain-list))
 	     (depth (org-list--depth plain-list))
@@ -3428,19 +3424,11 @@ PARAMS is a plist used to tweak the behavior of the transcoder."
 (defun org-list--to-generic-item (params)
   "Return a transcoder for `item' elements.
 PARAMS is a plist used to tweak the behavior of the transcoder."
-  (let ((backend (plist-get params :backend))
-	(istart (plist-get params :istart))
-	(iend (plist-get params :iend))
-	(isep (plist-get params :isep))
-	(icount (plist-get params :icount))
-	(ifmt (plist-get params :ifmt))
-	(cboff (plist-get params :cboff))
-	(cbon  (plist-get params :cbon))
-	(cbtrans (plist-get params :cbtrans))
-	(dtstart (plist-get params :dtstart))
-	(dtend (plist-get params :dtend))
-	(ddstart (plist-get params :ddstart))
-	(ddend (plist-get params :ddend)))
+  (cl-destructuring-bind
+      (&key backend istart iend isep icount ifmt cboff
+	    cbon cbtrans dtstart dtend ddstart ddend
+	    &allow-other-keys)
+      params
     (lambda (item contents info)
       (let* ((type
 	      (org-element-property :type (org-element-property :parent item)))
