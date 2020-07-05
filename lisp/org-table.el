@@ -1930,8 +1930,6 @@ of lists of fields."
 	(forward-line))
       (set-marker end nil))
     (when cut (org-table-align))
-    (message (substitute-command-keys "Cells in the region copied, use \
-\\[org-table-paste-rectangle] to paste them in a table."))
     (setq org-table-clip (nreverse region))))
 
 ;;;###autoload
@@ -2504,7 +2502,6 @@ location of point."
 	(setq form (copy-sequence formula)
 	      lispp (and (> (length form) 2) (equal (substring form 0 2) "'(")))
 	(if (and lispp literal) (setq lispp 'literal))
-
 	;; Insert row and column number of formula result field
 	(while (string-match "[@$]#" form)
 	  (setq form
@@ -2517,7 +2514,6 @@ location of point."
 			       (org-table-current-dline)
 			     (org-table-current-column))))
 		 t t form)))
-
 	;; Check for old vertical references
 	(org-table--error-on-old-row-references form)
 	;; Insert remote references
@@ -2588,7 +2584,6 @@ location of point."
 	    (user-error "Invalid field specifier \"%s\""
 			(match-string 0 form)))
 	  (setq form (replace-match formrpl t t form)))
-
 	(if lispp
 	    (setq ev (condition-case nil
 			 (eval (eval (read form)))
@@ -2598,7 +2593,6 @@ location of point."
 				   (string-to-number ev)
 				   duration-output-format)
 		       ev))
-
 	  ;; Use <...> time-stamps so that Calc can handle them.
 	  (setq form
 		(replace-regexp-in-string org-ts-regexp-inactive "<\\1>" form))
@@ -2615,7 +2609,6 @@ location of point."
 		      (apply #'encode-time
 			     (save-match-data (org-parse-time-string ts))))))
 		 form t t))
-
 	  (setq ev (if (and duration (string-match "^[0-9]+:[0-9]+\\(?::[0-9]+\\)?$" form))
 		       form
 		     (calc-eval (cons form org-tbl-calc-modes)
@@ -2626,7 +2619,6 @@ location of point."
 				   (string-to-number ev))
 				 duration-output-format)
 		     ev)))
-
 	(when org-table-formula-debug
 	  (let ((wcf (current-window-configuration)))
 	    (with-output-to-temp-buffer "*Substitution History*"
@@ -2649,12 +2641,12 @@ $1->    %s\n" orig formula form0 form))
 		(org-table-align)
 		(user-error "Abort"))
 	      (delete-window bw)
-	      (message "")
 	      (set-window-configuration wcf))))
 	(when (consp ev) (setq fmt nil ev "#ERROR"))
 	(org-table-justify-field-maybe
 	 (format org-table-formula-field-format
 		 (cond
+		  ((null ev) "")
 		  ((not (stringp ev)) ev)
 		  (fmt (format fmt (string-to-number ev)))
 		  ;; Replace any active time stamp in the result with
@@ -2807,7 +2799,8 @@ search, as a string."
 		     (t (cl-decf i (if backwards -1 1)) ; Step back.
 			(throw :exit nil)))))))
     (cond ((or (< i 0) (>= i l))
-	   (user-error "Row descriptor %s leads outside table" desc))
+	   '(user-error "Row descriptor %s leads outside table" desc)
+	   -1)
 	  ;; The last hline doesn't exist.  Instead, point to last row
 	  ;; in table.
 	  ((= i (1- l)) (1- i))
@@ -2833,8 +2826,8 @@ list, `literal' is for the format specifier L."
       ;; field reference
       (if lispp
 	  (if (eq lispp 'literal)
-	      elements
-	    (if (and (eq elements "") (not keep-empty))
+	      (if (equal elements "") "nil" elements)
+	    (if (and (equal elements "") (not keep-empty))
 		""
 	      (prin1-to-string
 	       (if numbers (string-to-number elements) elements))))
@@ -5798,19 +5791,11 @@ information."
   "Return custom table row transcoder according to PARAMS.
 PARAMS is a plist.  See `orgtbl-to-generic' for more
 information."
-  (let* ((backend (plist-get params :backend))
-	 (lstart (plist-get params :lstart))
-	 (llstart (plist-get params :llstart))
-	 (hlstart (plist-get params :hlstart))
-	 (hllstart (plist-get params :hllstart))
-	 (lend (plist-get params :lend))
-	 (llend (plist-get params :llend))
-	 (hlend (plist-get params :hlend))
-	 (hllend (plist-get params :hllend))
-	 (lfmt (plist-get params :lfmt))
-	 (llfmt (plist-get params :llfmt))
-	 (hlfmt (plist-get params :hlfmt))
-	 (hllfmt (plist-get params :hllfmt)))
+  (cl-destructuring-bind
+      (&key backend lstart llstart hlstart hllstart lend llend
+	    hlend hllend lfmt llfmt hlfmt hllfmt
+	    &allow-other-keys)
+      params
     `(lambda (row contents info)
        (if (eq (org-element-property :type row) 'rule)
 	   ,(cond
@@ -5892,12 +5877,10 @@ information."
   "Return custom table cell transcoder according to PARAMS.
 PARAMS is a plist.  See `orgtbl-to-generic' for more
 information."
-  (let* ((backend (plist-get params :backend))
-	 (efmt (plist-get params :efmt))
-	 (fmt (plist-get params :fmt))
-	 (hfmt (plist-get params :hfmt))
-	 (sep (plist-get params :sep))
-	 (hsep (plist-get params :hsep)))
+  (cl-destructuring-bind
+      (&key backend efmt fmt hfmt sep hsep
+	    &allow-other-keys)
+      params
     `(lambda (cell contents info)
        ;; Make sure that contents are exported as Org data when :raw
        ;; parameter is non-nil.
