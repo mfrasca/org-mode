@@ -5966,22 +5966,21 @@ open and agenda-wise Org files."
 ;;;; Headlines visibility
 
 (defun org-show-entry ()
-  "Show the body directly following this heading.
+  "Show the body directly following its heading.
 Show the heading too, if it is currently invisible."
   (interactive)
   (save-excursion
-    (ignore-errors
-      (org-back-to-heading t)
-      (org-flag-region
-       (line-end-position 0)
-       (save-excursion
-	 (if (re-search-forward
-	      (concat "[\r\n]\\(" org-outline-regexp "\\)") nil t)
-	     (match-beginning 1)
-	   (point-max)))
-       nil
-       'outline)
-      (org-cycle-hide-drawers 'children))))
+    (org-back-to-heading-or-point-min t)
+    (org-flag-region
+     (line-end-position 0)
+     (save-excursion
+       (if (re-search-forward
+	    (concat "[\r\n]\\(" org-outline-regexp "\\)") nil t)
+	   (match-beginning 1)
+	 (point-max)))
+     nil
+     'outline)
+    (org-cycle-hide-drawers 'children)))
 
 (defun org-show-children (&optional level)
   "Show all direct subheadings of this heading.
@@ -13085,7 +13084,10 @@ COLUMN formats in the current buffer."
 	(props (append
 		(and specials org-special-properties)
 		(and defaults (cons org-effort-property org-default-properties))
-		nil)))
+		;; Get property names from #+PROPERTY keywords as well
+		(mapcar (lambda (s)
+			  (nth 0 (split-string s)))
+			(cdar (org-collect-keywords '("PROPERTY")))))))
     (org-with-wide-buffer
      (goto-char (point-min))
      (while (re-search-forward org-property-start-re nil t)
@@ -13133,7 +13135,15 @@ COLUMN formats in the current buffer."
 		 (let ((p (match-string-no-properties 1 value)))
 		   (unless (member-ignore-case p org-special-properties)
 		     (push p props))))))))))
-    (sort (delete-dups props) (lambda (a b) (string< (upcase a) (upcase b))))))
+    (sort (delete-dups
+	   (append props
+		   ;; for each xxx_ALL property, make sure the bare
+		   ;; xxx property is also included
+		   (delq nil (mapcar (lambda (p)
+				       (and (string-match-p "._ALL\\'" p)
+					    (substring p 0 -4)))
+				     props))))
+	  (lambda (a b) (string< (upcase a) (upcase b))))))
 
 (defun org-property-values (key)
   "List all non-nil values of property KEY in current buffer."
@@ -17803,17 +17813,19 @@ When inserting a newline, indent the new line if
 (defun org-ctrl-c-tab (&optional arg)
   "Toggle columns width in a table, or show children.
 Call `org-table-toggle-column-width' if point is in a table.
-Otherwise, call `org-show-children'.  ARG is the level to hide."
+Otherwise provide a compact view of the children.  ARG is the
+level to hide."
   (interactive "p")
-  (if (org-at-table-p)
-      (call-interactively #'org-table-toggle-column-width)
-    (if (org-before-first-heading-p)
-        (progn
-          (org-flag-above-first-heading)
-          (outline-hide-sublevels (or arg 1))
-          (goto-char (point-min)))
-      (outline-hide-subtree)
-      (org-show-children arg))))
+  (cond
+   ((org-at-table-p)
+    (call-interactively #'org-table-toggle-column-width))
+   ((org-before-first-heading-p)
+    (save-excursion
+      (org-flag-above-first-heading)
+      (outline-hide-sublevels (or arg 1))))
+   (t
+    (outline-hide-subtree)
+    (org-show-children arg))))
 
 (defun org-ctrl-c-star ()
   "Compute table, or change heading status of lines.
@@ -19360,12 +19372,18 @@ filling the current element."
 	(unwind-protect
 	    (progn
 	      (goto-char (region-end))
+	      (skip-chars-backward " \t\n")
 	      (while (> (point) start)
-		(org-backward-paragraph)
-		(org-fill-element justify)))
+		(org-fill-element justify)
+		(org-backward-paragraph))
+	      (org-fill-element justify))
 	  (goto-char origin)
 	  (set-marker origin nil))))
-     (t (org-fill-element justify)))
+     (t
+      (save-excursion
+	(when (org-match-line "[ \t]*$")
+	  (skip-chars-forward " \t\n"))
+	(org-fill-element justify))))
     ;; If we didn't change anything in the buffer (and the buffer was
     ;; previously unmodified), then flip the modification status back
     ;; to "unchanged".

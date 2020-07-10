@@ -697,6 +697,63 @@
 	      (org-fill-element)
 	      (buffer-string))))))
 
+(ert-deftest test-org/fill-paragraph ()
+  "Test `org-fill-paragraph' specifications."
+  ;; Regular test.
+  (should
+   (equal "012345678\n9"
+	  (org-test-with-temp-text "012345678 9"
+	    (let ((fill-column 10))
+	      (org-fill-paragraph)
+	      (buffer-string)))))
+  ;; Fill paragraph even at end of buffer.
+  (should
+   (equal "012345678\n9\n"
+	  (org-test-with-temp-text "012345678 9\n<point>"
+	    (let ((fill-column 10))
+	      (org-fill-paragraph)
+	      (buffer-string)))))
+  ;; Between two paragraphs, fill the next one.
+  (should
+   (equal "012345678 9\n\n012345678\n9"
+	  (org-test-with-temp-text "012345678 9\n<point>\n012345678 9"
+	    (let ((fill-column 10))
+	      (org-fill-paragraph)
+	      (buffer-string)))))
+  (should
+   (equal "012345678\n9\n\n012345678 9"
+	  (org-test-with-temp-text "012345678 9<point>\n\n012345678 9"
+	    (let ((fill-column 10))
+	      (org-fill-paragraph)
+	      (buffer-string)))))
+  ;; Fill paragraph in a comment block.
+  (should
+   (equal "#+begin_comment\n012345678\n9\n#+end_comment"
+	  (org-test-with-temp-text
+	      "#+begin_comment\n<point>012345678 9\n#+end_comment"
+	    (let ((fill-column 10))
+	      (org-fill-paragraph)
+	      (buffer-string)))))
+  ;; When a region is selected, fill every paragraph in the region.
+  (should
+   (equal "012345678\n9\n\n012345678\n9"
+	  (org-test-with-temp-text "012345678 9\n\n012345678 9"
+	    (let ((fill-column 10))
+	      (transient-mark-mode 1)
+	      (push-mark (point-min) t t)
+	      (goto-char (point-max))
+	      (call-interactively #'org-fill-paragraph)
+	      (buffer-string)))))
+  (should
+   (equal "012345678\n9\n\n012345678 9"
+	  (org-test-with-temp-text "012345678 9\n<point>\n012345678 9"
+	    (let ((fill-column 10))
+	      (transient-mark-mode 1)
+	      (push-mark (point) t t)
+	      (goto-char (point-min))
+	      (call-interactively #'org-fill-paragraph)
+	      (buffer-string))))))
+
 (ert-deftest test-org/auto-fill-function ()
   "Test auto-filling features."
   ;; Auto fill paragraph.
@@ -5351,6 +5408,27 @@ Paragraph<point>"
   (should
    (equal '("A")
 	  (org-test-with-temp-text "* H\n:PROPERTIES:\n:A: 1\n:A+: 2\n:END:"
+	    (org-buffer-property-keys))))
+  ;; Add bare property if xxx_ALL property is there
+  (should
+   (equal '("A" "B" "B_ALL")
+	  (org-test-with-temp-text "* H\n:PROPERTIES:\n:A: 1\n:A+: 2\n:B_ALL: foo bar\n:END:"
+	    (org-buffer-property-keys))))
+  ;; Add bare property if xxx_ALL property is there - check dupes
+  (should
+   (equal '("A" "B" "B_ALL")
+	  (org-test-with-temp-text "* H\n:PROPERTIES:\n:A: 1\n:B: 2\n:B_ALL: foo bar\n:END:"
+	    (org-buffer-property-keys))))
+  ;; Retrieve properties from #+PROPERTY keyword lines
+  (should
+   (equal '("A" "C")
+	  (org-test-with-temp-text "#+PROPERTY: C foo\n* H\n:PROPERTIES:\n:A: 1\n:A+: 2\n:END:"
+	    (org-buffer-property-keys))))
+  ;; Retrieve properties from #+PROPERTY keyword lines - make sure an _ALL property also
+  ;; adds the bare property
+  (should
+   (equal '("A" "C" "C_ALL")
+	  (org-test-with-temp-text "#+PROPERTY: C_ALL foo bar\n* H\n:PROPERTIES:\n:A: 1\n:A+: 2\n:END:"
 	    (org-buffer-property-keys))))
   ;; With non-nil COLUMNS, extract property names from columns.
   (should
