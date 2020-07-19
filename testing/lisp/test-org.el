@@ -3210,6 +3210,10 @@ SCHEDULED: <2017-05-06 Sat>
      (org-cycle)
      (org-next-visible-heading 1)
      (looking-at "\\* H3")))
+  (should
+   (org-test-with-temp-text "* H1\n* H2\n* H3"
+     (org-next-visible-heading 1)
+     (looking-at "\\* H2")))
   ;; Move point between headlines, not on blank lines between.
   (should
    (org-test-with-temp-text "* H1\n** H2\n\n\n\n* H3"
