@@ -162,31 +162,28 @@ list of (cons 0-based-row-num . cell-value)."
 		     deps))
 	 (row-vals ; the return value - indexed values from the ind column
 	  (unless (< ind 0)
-	    (let ((i -1)) (mapcar (lambda (row)
-				    (incf i)
-				    (cons i (nth ind row)))
-				  table)))))
+	    (cl-loop for i from 0
+		     for row in table
+		     collect (cons i (nth idx row))))))
     ;; remove non-plotting columns
     (setq table (mapcar (lambda (row) 
 			  (org-remove-by-index row skip-deps))
 			table))
     ;; write table to gnuplot grid datafile format
     (with-temp-file data-file
-      (let ((gnuplot-row (lambda (col row value)
-			   (format "%f  %f  %s\n%f  %f  %s\n"
-				   col (+ row 0.5) value
-				   col (+ row 1.5) value))))
-	(dotimes (col (length (car table)))
-	  (let ((column (mapcar (lambda (row) (nth col row)) table))
-		(row 0)
-		front-edge back-edge)
-	    (dolist (cell column)
-	      (setq back-edge (concat back-edge
-				      (funcall gnuplot-row col row cell)))
-	      (setq front-edge (concat front-edge
-				       (funcall gnuplot-row (1+ col) row cell)))
-	      (incf row))
-	    (insert (concat back-edge "\n" front-edge "\n"))))))
+      (cl-loop with plot = (lambda (c r v)
+			     (format "%f  %f  %s\n%f  %f  %s\n"
+				     c (+ r 0.5) v c (+ r 1.5) v))
+	       for col from 0 below (length (nth 0 table)) do
+	       (cl-loop with front-edge and back-edge
+			for row from 0
+			for cell in (cl-loop for r in table
+					     collect (nth col r))
+			concat (funcall plot col row cell)
+			into back-edge
+			concat (funcall plot (1+ col) row cell)
+			into front-edge
+			finally (insert (concat back-edge "\n" front-edge "\n")))))
     row-vals))
 
 (defun org-plot/zip-deps-with (num-cols ind deps with)
